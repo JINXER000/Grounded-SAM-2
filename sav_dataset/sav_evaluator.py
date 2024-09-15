@@ -10,7 +10,7 @@
 # in the sav_dataset directory.
 from argparse import ArgumentParser
 
-from utils.sav_benchmark import benchmark
+from groundedSamUtils.sav_benchmark import benchmark
 
 """
 The structure of the {GT_ROOT} can be either of the follow two structures. 

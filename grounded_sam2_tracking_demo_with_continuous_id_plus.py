@@ -7,10 +7,10 @@ from PIL import Image
 from sam2.build_sam import build_sam2_video_predictor, build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor
 from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection 
-from utils.track_utils import sample_points_from_masks
-from utils.video_utils import create_video_from_images
-from utils.common_utils import CommonUtils
-from utils.mask_dictionary_model import MaskDictionaryModel, ObjectInfo
+from groundedSamUtils.track_utils import sample_points_from_masks
+from groundedSamUtils.video_utils import create_video_from_images
+from groundedSamUtils.common_utils import CommonUtils
+from groundedSamUtils.mask_dictionary_model import MaskDictionaryModel, ObjectInfo
 import json
 import copy
 

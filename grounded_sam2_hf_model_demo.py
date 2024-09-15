@@ -7,7 +7,7 @@ import supervision as sv
 import pycocotools.mask as mask_util
 from pathlib import Path
 from supervision.draw.color import ColorPalette
-from utils.supervision_utils import CUSTOM_COLOR_MAP
+from groundedSamUtils.supervision_utils import CUSTOM_COLOR_MAP
 from PIL import Image
 from sam2.build_sam import build_sam2
 from sam2.sam2_image_predictor import SAM2ImagePredictor

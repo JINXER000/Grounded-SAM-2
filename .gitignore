@@ -145,3 +145,11 @@ dmypy.json
 outputs/
 
 .idea/
+
+*.png
+*.jpg
+*.jpeg
+*.mp4
+*.ply
+*.obj
+*.zip
