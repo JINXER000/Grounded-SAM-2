@@ -65,8 +65,8 @@ def downsample_pc(pc, target_size = 512):
     cl, ind = pcd.remove_radius_outlier(nb_points=40, radius=0.05)
     cl_pts = np.asarray(cl.points)
     cl_pts = cl_pts[cl_pts[:, 2] > 0.03]
-    # obj_aabb = aabb_from_points(cl_pts)
 
+    # obj_aabb = aabb_from_points(cl_pts)
     # obj_extent = get_aabb_extent(obj_aabb)
     # if obj_extent[2] > 0.15:
     #     o3d.io.write_point_cloud("dbg.ply", cl)
@@ -103,14 +103,6 @@ def actions2grasps(obs_cam_high, obs_high_depth, camera_info, cam_pose_json_file
     right_eepath = compute_eepath(r_joint_vals, 1)
     # filter the ids using the distance to the object
 
-        # start_pose = objs[0].initial_pose
-        # l_grasp_ids = filter_grasp_by_obj(start_pose[0], left_eepath, l_grasp_ids)
-        # r_grasp_ids = filter_grasp_by_obj(start_pose[0], right_eepath, r_grasp_ids)
-
-        # end_pose = objs[-1].initial_pose
-        # l_release_ids = filter_grasp_by_obj(end_pose[0], left_eepath, l_release_ids)
-        # r_release_ids = filter_grasp_by_obj(end_pose[0], right_eepath, r_release_ids)
-
     start_obj_points = [lp.point for lp in objs[0].points]
     start_obj_points = downsample_pc(start_obj_points)
     end_obj_points = [lp.point for lp in objs[-1].points]     
@@ -127,9 +119,6 @@ def actions2grasps(obs_cam_high, obs_high_depth, camera_info, cam_pose_json_file
         plt.plot(smoothed_gripper_ql, label='smoothed_left_qpos')
         plt.plot(smoothed_gripper_qr, label='smoothed_right_qpos')
 
-        # plt.plot(gripper_dql, label= 'left_gripper_change_rate')
-        # plt.plot(gripper_dqr, label= 'right_gripper_change_rate')
-
         # draw grasp and release points
         plt.scatter(l_grasp_ids, smoothed_gripper_ql[l_grasp_ids], c='r', label='left_grasp')
         plt.scatter(l_release_ids, smoothed_gripper_ql[l_release_ids], c='g', label='left_release')
@@ -139,25 +128,6 @@ def actions2grasps(obs_cam_high, obs_high_depth, camera_info, cam_pose_json_file
         pic_name = 'gripper_vals.png'
         plt.savefig(pic_name)        
 
-    
-    # # NOTE: the code below is task specific! 
-    ## in transfer task, right is for precondition, left is for postcondition
-
-    # l_release_data = []
-    # for i, grasp_id in enumerate(l_release_ids):
-    #     grasp_pose = qpos_to_eetrans(l_joint_vals[grasp_id], 0)
-    #     l_release_data.append((grasp_id, grasp_pose))
-
-    # r_grasp_data = []
-    # if max(r_grasp_ids) < min(r_release_ids):
-    #     r_middle_ids = range(min(r_grasp_ids), max(r_release_ids))
-    #     for i, grasp_id in enumerate(r_middle_ids):
-    #         grasp_pose = qpos_to_eetrans(r_joint_vals[grasp_id], 1)
-    #         r_grasp_data.append((grasp_id, grasp_pose))
-
-    ### pred grasp data = (static starting pc, r_grasp_pose) + (moving starting pc, r_grasping_pose)
-    ### eff grasp data = (static ending pc, l_release_grasps)
-    ### pred joint data = (moving joint data)
 
     moving_ids = list(range(min(r_grasp_ids), max(r_release_ids)))
     
@@ -167,24 +137,17 @@ def actions2grasps(obs_cam_high, obs_high_depth, camera_info, cam_pose_json_file
     r_grasping_poses = [right_eepath[i] for i in moving_ids]
     pc_moving = []
     for i in tqdm(moving_ids):
-        # if i == 120:
+        # if i == 158:
         #     print('debug')
         obj_pc = get_labeled_points(obs_cam_high[i], obs_high_depth[i], camera_info, cam_pose_json_file, \
                                             video_segments[i][1][0], objects)
         pc_moving.append(obj_pc)
-    # pred_grasps_data = zip(moving_ids, r_grasping_poses, pc_moving)
 
     r_grasp_poses = [right_eepath[i] for i in r_grasp_ids]
-    # static_grasp_data = zip(start_ids, r_grasp_poses, start_obj_points)
-
-    # pred_grasps_data = list(pred_grasps_data) + list(static_grasp_data)
-    # pred_grasps, pred_pcs = zip(*pred_grasps_data)
     pred_grasps =  r_grasp_poses+ r_grasping_poses
     pred_pcs = [start_obj_points]*len(r_grasp_ids) + pc_moving
 
     l_release_grasps = [left_eepath[i] for i in l_release_ids]
-    # static_release_data = zip(end_ids, l_release_grasps, end_obj_points)
-    # eff_grasps, eff_pcs = zip(*static_release_data)
 
     contact_info_dict = {'pred_grasps': pred_grasps, 'pred_pcs': pred_pcs, \
                          'pred_ids': moving_ids, \
@@ -253,13 +216,6 @@ def switch_ids(smoothed_qpos, gripper_change_rate, x_threshold = 0.1,  dx_thresh
 #     ]
 
 #     relevant_cloud = downsample_pc(relevant_cloud)
-
-#     # ### save the point cloud as pcd
-#     # import open3d as o3d
-#     # pcd = o3d.geometry.PointCloud()
-#     # pcd.points = o3d.utility.Vector3dVector(relevant_cloud)
-#     # # o3d.visualization.draw_geometries([pcd])
-#     # o3d.io.write_point_cloud("dbg.ply", pcd)
 
 #     return relevant_cloud
 
@@ -349,21 +305,14 @@ def postprocess_jointgrasp(hdf5_path, play_orig_vid=False, cam_pose_json_file = 
                                         video_segments, objects, actions=obs_qpos, objs = [start_obj, end_obj], plot = True
                                        )
 
-    # ### produce labeled point cloud. TOO SLOW!
-    # obj_pc_list = []
-    # vid_len = len(obs_cam_high)
-    # for i in tqdm(range(vid_len)):
-    #     obj_points = get_labeled_points(obs_cam_high[i], obs_high_depth[i], camera_info, cam_pose_json_file, \
-    #                                     video_segments[i][1][0], objects)  # assume we have only 1 object detected
-    #     obj_pc_list.append(obj_points)
-
 
     # save the contact info dict to the hdf5 file
     save_dict_to_hdf5(contact_info_dict, hdf5_path)
-
-
-
     print(f"------Processed  {hdf5_path.split('/')[-1]}----------")
+
+
+
+    os.chdir(SAM_PATH)
 
 
 
@@ -458,9 +407,9 @@ if __name__ == '__main__':
     file_dir = "/ssd1/aloha_data/aloha_transfer_tape"
     # file_dir = "/home/xuhang/Desktop/yzchen_ws/equibot_abstract/data/transfer_tape/raw"
     
-    for episode_idx in [101]:
-    # for episode_idx in range(0, 50): 
+    for episode_idx in [9]:
+    # for episode_idx in range(8, 10): 
         test_hdf5_path = os.path.join(file_dir, f"episode_{episode_idx}.hdf5")
-        # postprocess_jointgrasp(test_hdf5_path, play_orig_vid=False, \
-        #                        cam_pose_json_file = cam_pose_json_file)
-        visualize_processed(test_hdf5_path, is_pred = True)
+        postprocess_jointgrasp(test_hdf5_path, play_orig_vid=False, \
+                               cam_pose_json_file = cam_pose_json_file)
+        # visualize_processed(test_hdf5_path, is_pred = True)

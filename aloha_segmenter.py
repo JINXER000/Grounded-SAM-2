@@ -47,6 +47,18 @@ class ObjectTrackingPipeline:
         self.processor = AutoProcessor.from_pretrained(self.model_id)
         self.grounding_model = AutoModelForZeroShotObjectDetection.from_pretrained(self.model_id).to(self.device)
 
+    def deinit(self, inference_state):
+        inference_state["images"].cpu()
+        self.sam2_image_model.cpu()
+        self.grounding_model.cpu()
+        ## free cuda mem
+        # del rgb_segmenter.video_predictor
+        # del rgb_segmenter
+        import gc, torch
+        gc.collect()
+        torch.cuda.empty_cache()
+
+
     def save_video_frames(self):
         """
         Converts video into frames and saves them to a specified directory.
@@ -86,6 +98,8 @@ class ObjectTrackingPipeline:
         ) as sink:
             for idx, frame in enumerate(image_list):
                 sink.save_image(frame)
+
+        print(f"Saved {len(image_list)} images to {self.source_video_frame_dir}")
 
 
 
@@ -224,6 +238,8 @@ class ObjectTrackingPipeline:
         inference_state = self.video_predictor.init_state(video_path=self.source_video_frame_dir)
         self.add_points_or_box(inference_state, input_boxes, masks, objects, ann_frame_idx=0)
         video_segments = self.propagate_video(inference_state)
+
+        self.deinit(inference_state)
 
         return video_segments, objects
 
