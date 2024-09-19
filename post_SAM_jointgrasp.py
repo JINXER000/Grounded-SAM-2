@@ -6,7 +6,7 @@ import cv2
 import json
 import h5py
 
-from aloha_segmenter import ObjectTrackingPipeline
+from aloha_segmenter import SAMTrackPipeline
 
 from tqdm import tqdm
 
@@ -80,6 +80,23 @@ def downsample_pc(pc, target_size = 512):
 
     return out_pc
 
+
+def plot_gripper_vals(smoothed_gripper_ql, smoothed_gripper_qr, l_grasp_ids, l_release_ids, r_grasp_ids, r_release_ids):
+
+    import matplotlib.pyplot as plt
+    plt.clf()
+    plt.plot(smoothed_gripper_ql, label='smoothed_left_qpos')
+    plt.plot(smoothed_gripper_qr, label='smoothed_right_qpos')
+
+    # draw grasp and release points
+    plt.scatter(l_grasp_ids, smoothed_gripper_ql[l_grasp_ids], c='r', label='left_grasp')
+    plt.scatter(l_release_ids, smoothed_gripper_ql[l_release_ids], c='g', label='left_release')
+    plt.scatter(r_grasp_ids, smoothed_gripper_qr[r_grasp_ids], c='b', label='right_grasp')
+    plt.scatter(r_release_ids, smoothed_gripper_qr[r_release_ids], c='y', label='right_release')
+    plt.legend()
+    pic_name = 'gripper_vals.png'
+    plt.savefig(pic_name)
+
 def actions2grasps(obs_cam_high, obs_high_depth, camera_info, cam_pose_json_file, \
                                         video_segments, objects, actions, target_size = 512, objs = None,  plot = False):
     l_joint_vals = actions[:, :6]
@@ -114,19 +131,7 @@ def actions2grasps(obs_cam_high, obs_high_depth, camera_info, cam_pose_json_file
     r_release_ids = filter_release_by_seq(r_grasp_ids, r_release_ids)
  
     if plot:
-        import matplotlib.pyplot as plt
-        plt.clf()
-        plt.plot(smoothed_gripper_ql, label='smoothed_left_qpos')
-        plt.plot(smoothed_gripper_qr, label='smoothed_right_qpos')
-
-        # draw grasp and release points
-        plt.scatter(l_grasp_ids, smoothed_gripper_ql[l_grasp_ids], c='r', label='left_grasp')
-        plt.scatter(l_release_ids, smoothed_gripper_ql[l_release_ids], c='g', label='left_release')
-        plt.scatter(r_grasp_ids, smoothed_gripper_qr[r_grasp_ids], c='b', label='right_grasp')
-        plt.scatter(r_release_ids, smoothed_gripper_qr[r_release_ids], c='y', label='right_release')
-        plt.legend()
-        pic_name = 'gripper_vals.png'
-        plt.savefig(pic_name)        
+        plot_gripper_vals(smoothed_gripper_ql, smoothed_gripper_qr, l_grasp_ids, l_release_ids, r_grasp_ids, r_release_ids)
 
 
     moving_ids = list(range(min(r_grasp_ids), max(r_release_ids)))
@@ -152,6 +157,58 @@ def actions2grasps(obs_cam_high, obs_high_depth, camera_info, cam_pose_json_file
     contact_info_dict = {'pred_grasps': pred_grasps, 'pred_pcs': pred_pcs, \
                          'pred_ids': moving_ids, \
                          'eff_grasps': l_release_grasps, 'eff_pc': end_obj_points, \
+                         'pred_joint_vals': demo_joint_vals}
+    return contact_info_dict
+
+def actions2grasps_startend(color_imgs, depth_imgs, camera_info, cam_pose_json_file, \
+                                        video_segments, objects, actions, objs = None,  plot = False):
+    l_joint_vals = actions[:, :6]
+    l_gripper_val = PUPPET_GRIPPER_JOINT_UNNORMALIZE_FN(actions[:, 6])
+    r_joint_vals = actions[:, 7:13]
+    r_gripper_val = PUPPET_GRIPPER_JOINT_UNNORMALIZE_FN(actions[:, 13])
+
+    smoothed_gripper_ql = _smooth(l_gripper_val)
+    gripper_dql = np.diff(smoothed_gripper_ql, axis=0) / DT
+
+    l_grasp_ids = switch_ids(smoothed_gripper_ql, gripper_dql, x_threshold=0.35, dx_threshold=-0.7, type='grasp')
+    l_release_ids = switch_ids(smoothed_gripper_ql, gripper_dql, x_threshold=0.6, dx_threshold= 0.7, clip_start=100, type='release')
+
+    smoothed_gripper_qr = _smooth(r_gripper_val)
+    gripper_dqr = np.diff(smoothed_gripper_qr, axis=0) / DT
+
+    r_grasp_ids = switch_ids(smoothed_gripper_qr, gripper_dqr, x_threshold=0.35, dx_threshold=-0.7, type='grasp')
+    r_release_ids = switch_ids(smoothed_gripper_qr, gripper_dqr, x_threshold=0.6, dx_threshold= 0.7, clip_start=100, type='release')
+
+    left_eepath = compute_eepath(l_joint_vals, 0)
+    right_eepath = compute_eepath(r_joint_vals, 1)
+
+    start_obj_points = get_labeled_points(color_imgs[0], depth_imgs[0], camera_info, cam_pose_json_file, \
+                                        video_segments[0][1][0], objects)
+
+    end_obj_points = np.array([lp.point for lp in objs[-1].points])
+    
+    
+    # filter the ids using the distance to the object
+    l_grasp_ids = filter_grasp_by_obj(start_obj_points.mean(axis=0), left_eepath, l_grasp_ids)
+    r_grasp_ids = filter_grasp_by_obj(start_obj_points.mean(axis=0), right_eepath, r_grasp_ids)
+    l_release_ids = filter_grasp_by_obj(end_obj_points.mean(axis=0), left_eepath, l_release_ids)
+    r_release_ids = filter_grasp_by_obj(end_obj_points.mean(axis=0), right_eepath, r_release_ids)
+ 
+    if plot:
+        plot_gripper_vals(smoothed_gripper_ql, smoothed_gripper_qr, l_grasp_ids, l_release_ids, r_grasp_ids, r_release_ids)
+
+
+    last_grasp_id = max(l_grasp_ids+ r_grasp_ids)
+    first_release_id = min(l_release_ids + r_release_ids)
+    assert last_grasp_id < first_release_id
+    demo_joint_vals = actions[last_grasp_id:first_release_id]
+
+    r_grasp_poses = [right_eepath[i] for i in r_grasp_ids]
+    l_release_poses = [left_eepath[i] for i in l_release_ids]
+    start_grasps = {'grasp_poses':  r_grasp_poses, 'obj_points': start_obj_points, 'arm': 'right'}
+    end_grasps = {'grasp_poses': l_release_poses, 'obj_points': end_obj_points, 'arm': 'left'}
+
+    contact_info_dict = {'start_grasps': start_grasps, 'end_grasps': end_grasps, \
                          'pred_joint_vals': demo_joint_vals}
     return contact_info_dict
 
@@ -275,7 +332,7 @@ def get_labeled_points(color_img, depth_img_mm, camera_info_depth, cam_pose_json
 
 
 
-def postprocess_jointgrasp(hdf5_path, play_orig_vid=False, cam_pose_json_file = None):
+def postprocess_jointgrasp(hdf5_path, play_orig_vid=False, cam_pose_json_file = None, frames_to_seg = None):
     data_dict = read_demo_realsense(hdf5_path)
     obs_qpos = data_dict['qpos']
     obs_cam_high = data_dict['cam_high']
@@ -288,32 +345,37 @@ def postprocess_jointgrasp(hdf5_path, play_orig_vid=False, cam_pose_json_file = 
         play_vid(obs_cam_high)    
 
     ### SAM on color image to produce segmentation mask
-    rgb_segmenter = ObjectTrackingPipeline(text_prompt = 'tape.', source_video_frame_dir = "./custom_video_frames", \
+    rgb_segmenter = SAMTrackPipeline(text_prompt = 'tape.', source_video_frame_dir = "./custom_video_frames", \
                                           save_tracking_results_dir = "./tracking_results" )
-    
-    rgb_segmenter.save_images_frames(obs_cam_high)
+    if frames_to_seg is None:
+        imgs_for_detection = obs_cam_high
+    else:
+        imgs_for_detection = obs_cam_high[frames_to_seg]
+
+    rgb_segmenter.save_images_frames(imgs_for_detection)
     video_segments, objects = rgb_segmenter.run_pipeline()
 
     
-
-    # # NOTE: if starting at perception state, we only have to collect end point cloud
     os.chdir(TAMP_PATH)
-    start_obj, end_obj = get_start_end_objs(color_imgs, depth_imgs, camera_info, cam_pose_json_file)
 
-    # identify grasp poses
-    contact_info_dict = actions2grasps(obs_cam_high, obs_high_depth, camera_info, cam_pose_json_file, \
-                                        video_segments, objects, actions=obs_qpos, objs = [start_obj, end_obj], plot = True
-                                       )
+    if frames_to_seg is None:
+        start_obj, end_obj = get_start_end_objs(color_imgs, depth_imgs, camera_info, cam_pose_json_file)
 
+        # identify grasp poses
+        contact_info_dict = actions2grasps(obs_cam_high, obs_high_depth, camera_info, cam_pose_json_file, \
+                                            video_segments, objects, actions=obs_qpos, objs = [start_obj, end_obj], plot = True
+                                        )
+    else:
+        # identify grasp poses
+        [end_obj] = get_start_end_objs([color_imgs[-1]], [depth_imgs[-1]], camera_info, cam_pose_json_file)
+        contact_info_dict = actions2grasps_startend(obs_cam_high, obs_high_depth, camera_info, cam_pose_json_file, \
+                                            video_segments, objects, actions=obs_qpos, objs = [end_obj],  plot = True)
 
     # save the contact info dict to the hdf5 file
     save_dict_to_hdf5(contact_info_dict, hdf5_path)
     print(f"------Processed  {hdf5_path.split('/')[-1]}----------")
 
-
-
     os.chdir(SAM_PATH)
-
 
 
 
@@ -345,10 +407,6 @@ def read_demo_realsense(input_hdf5_path, from_sim=False):
         # obs_efforts = obs_grp['effort'][()]
         obs_qpos = obs_grp['qpos'][()]
         obs_qvel = obs_grp['qvel'][()]
-
-        # print("joint_efforts.shape: {}".format(obs_efforts.shape))
-        print("joint_qpos.shape: {}".format(obs_qpos.shape))
-        print("joint_qvel.shape: {}".format(obs_qvel.shape))
 
         data_dict['qpos'] = obs_qpos
 
@@ -407,9 +465,9 @@ if __name__ == '__main__':
     file_dir = "/ssd1/aloha_data/aloha_transfer_tape"
     # file_dir = "/home/xuhang/Desktop/yzchen_ws/equibot_abstract/data/transfer_tape/raw"
     
-    for episode_idx in [9]:
-    # for episode_idx in range(8, 10): 
+    for episode_idx in [101]:
+    # for episode_idx in range(7, 10): 
         test_hdf5_path = os.path.join(file_dir, f"episode_{episode_idx}.hdf5")
         postprocess_jointgrasp(test_hdf5_path, play_orig_vid=False, \
-                               cam_pose_json_file = cam_pose_json_file)
+                               cam_pose_json_file = cam_pose_json_file, frames_to_seg=[0])
         # visualize_processed(test_hdf5_path, is_pred = True)

@@ -13,7 +13,7 @@ from transformers import AutoProcessor, AutoModelForZeroShotObjectDetection
 from groundedSamUtils.track_utils import sample_points_from_masks
 from groundedSamUtils.video_utils import create_video_from_images
 
-class ObjectTrackingPipeline:
+class SAMTrackPipeline:
     def __init__(self, model_id = "IDEA-Research/grounding-dino-tiny", video_path = None, text_prompt=None, output_video_path = None, source_video_frame_dir = None, 
                  save_tracking_results_dir = None, prompt_type_for_video="box", sam2_checkpoint="./checkpoints/sam2_hiera_large.pt", 
                  model_cfg="sam2_hiera_l.yaml"):
@@ -239,7 +239,8 @@ class ObjectTrackingPipeline:
         self.add_points_or_box(inference_state, input_boxes, masks, objects, ann_frame_idx=0)
         video_segments = self.propagate_video(inference_state)
 
-        self.deinit(inference_state)
+        # self.deinit(inference_state)
+        self.video_predictor.reset_state(inference_state)
 
         return video_segments, objects
 
@@ -252,11 +253,11 @@ if __name__ == "__main__":
     # SOURCE_VIDEO_FRAME_DIR = "./custom_video_frames"
     # SAVE_TRACKING_RESULTS_DIR = "./tracking_results"
     # PROMPT_TYPE_FOR_VIDEO = "box" # choose from ["point", "box", "mask"]
-    # pipeline = ObjectTrackingPipeline(MODEL_ID, VIDEO_PATH, TEXT_PROMPT, OUTPUT_VIDEO_PATH, SOURCE_VIDEO_FRAME_DIR, SAVE_TRACKING_RESULTS_DIR)
+    # pipeline = SAMTrackPipeline(MODEL_ID, VIDEO_PATH, TEXT_PROMPT, OUTPUT_VIDEO_PATH, SOURCE_VIDEO_FRAME_DIR, SAVE_TRACKING_RESULTS_DIR)
     # pipeline.save_video_frames()
 
 
-    pipeline = ObjectTrackingPipeline(text_prompt = 'tape.', source_video_frame_dir = "./custom_video_frames", \
+    pipeline = SAMTrackPipeline(text_prompt = 'tape.', source_video_frame_dir = "./custom_video_frames", \
                                           save_tracking_results_dir = "./tracking_results" )
     
     video_segments, objects =  pipeline.run_pipeline()
