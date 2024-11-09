@@ -19,11 +19,13 @@ from examples.pybullet.aloha_real.openworld_aloha.policy_simp import get_compati
 from examples.pybullet.aloha_real.openworld_aloha.entities import  CameraImage
 from examples.pybullet.aloha_real.openworld_aloha.estimation.observation import iterate_image, custom_iterate_point_cloud
 from examples.pybullet.aloha_real.insertion_gmm.post_jointgrasp import get_start_end_objs, play_vid, _smooth,\
-    save_dict_to_hdf5, qpos_to_eetrans, PUPPET_GRIPPER_JOINT_UNNORMALIZE_FN, DT
+    save_dict_to_hdf5
+from examples.pybullet.aloha_real.scripts.constants import trans2eepose, qpos_to_eetrans, PUPPET_GRIPPER_JOINT_UNNORMALIZE_FN, DT
 from examples.pybullet.aloha_real.openworld_aloha.simple_worlds import render_pose
-from examples.pybullet.utils.pybullet_tools.utils import aabb_from_points, get_aabb_extent
+from examples.pybullet.utils.pybullet_tools.utils import oobb_from_points,  tform_oobb, \
+    get_oobb_vertices, oobb_contains_point, Point, multiply, invert
 
-
+from sklearn.cluster import DBSCAN
 os.chdir(SAM_PATH)
 
 def compute_eepath(joint_val_list, robot_id):
@@ -52,7 +54,9 @@ def filter_release_by_seq(grasp_ids, release_ids):
     filtered_grasp_ids = [release_id for release_id in release_ids if release_id > grasp_ids[-1]]
     return filtered_grasp_ids
 
-def downsample_pc(pc, target_size = 512):
+
+    
+def downsample_pc(pc, target_size = 256, initial_oobb = None, delta_eepose = None,  **kwargs):
     pc = np.array(pc)
 
     ### save the point cloud as pcd
@@ -64,18 +68,49 @@ def downsample_pc(pc, target_size = 512):
     # cl, ind = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=0.2)
     cl, ind = pcd.remove_radius_outlier(nb_points=40, radius=0.05)
     cl_pts = np.asarray(cl.points)
-    cl_pts = cl_pts[cl_pts[:, 2] > 0.03]
+    # cl_pts = cl_pts[cl_pts[:, 2] > 0.03]
 
-    # obj_aabb = aabb_from_points(cl_pts)
+
+    ## use clustering to filter the points
+
+    dbscan = DBSCAN(eps=0.03, min_samples=10)
+    labels = dbscan.fit_predict(cl_pts)
+    valid_mask = labels != -1
+
+    unique_labels = set(labels)
+    n_clusters_ = len(unique_labels) - (1 if -1 in labels else 0)
+    if n_clusters_ > 1:
+        largest_cluster_label = max(unique_labels, key = list(labels).count)
+        largest_cluster_mask  = labels == largest_cluster_label
+        valid_mask = valid_mask & largest_cluster_mask        
+
+    cl_pts_filtered = cl_pts[valid_mask]
+
+    # ## use OOBB to filter the points
+    # if initial_oobb is not None and delta_eepose is not None:
+    #     grasped_oobb = tform_oobb(delta_eepose, initial_oobb)
+
+    #     bounded_pts = []
+    #     for cl_pt in cl_pts_filtered:
+    #         if oobb_contains_point(cl_pt, grasped_oobb):
+    #             bounded_pts.append(cl_pt)
+        
+    #     cl_pts_filtered = np.array(bounded_pts)
+
+
+    cl.points = o3d.utility.Vector3dVector(cl_pts_filtered)
+    o3d.io.write_point_cloud("dbg.ply", cl)
+
+    # obj_aabb = oobb_from_points(cl_pts)
     # obj_extent = get_aabb_extent(obj_aabb)
     # if obj_extent[2] > 0.15:
     #     o3d.io.write_point_cloud("dbg.ply", cl)
     #     print('debug')
 
-    if len(cl_pts) < target_size:
+    if len(cl_pts_filtered) < target_size:
         raise NotImplementedError("Not enough points in the point cloud")
-    sampled_indices = np.random.choice(cl_pts.shape[0], target_size, replace=False)
-    out_pc = cl_pts[sampled_indices]
+    sampled_indices = np.random.choice(cl_pts_filtered.shape[0], target_size, replace=False)
+    out_pc = cl_pts_filtered[sampled_indices]
 
 
     return out_pc
@@ -98,7 +133,8 @@ def plot_gripper_vals(smoothed_gripper_ql, smoothed_gripper_qr, l_grasp_ids, l_r
     plt.savefig(pic_name)
 
 def actions2grasps(obs_cam_high, obs_high_depth, camera_info, cam_pose_json_file, \
-                                        video_segments, vid_objects, actions,  start_end_obj_pts = [], plot = False):
+                                        video_segments, vid_objects, actions,  start_end_obj_pts = [], plot = False,
+                                        **kwargs):
                                         
     l_joint_vals = actions[:, :6]
     l_gripper_val = PUPPET_GRIPPER_JOINT_UNNORMALIZE_FN(actions[:, 6])
@@ -121,15 +157,6 @@ def actions2grasps(obs_cam_high, obs_high_depth, camera_info, cam_pose_json_file
     right_eepath = compute_eepath(r_joint_vals, 1)
     # filter the ids using the distance to the object
 
-    # start_obj_points = [lp.point for lp in objs[0].points]
-    # start_obj_points = downsample_pc(start_obj_points)
-    # end_obj_points = [lp.point for lp in objs[-1].points]     
-    # end_obj_points = downsample_pc(end_obj_points)
-
-    # start_obj_points = get_labeled_points(obs_cam_high[0], obs_high_depth[0], camera_info, cam_pose_json_file, \
-    #                                         video_segments[0][1][0], vid_objects)
-    # end_obj_points = get_labeled_points(obs_cam_high[-1], obs_high_depth[-1], camera_info, cam_pose_json_file, \
-    #                                         video_segments[-1][1][0], vid_objects)
 
     l_grasp_ids = filter_grasp_starting(l_grasp_ids)
     r_grasp_ids = filter_grasp_starting(r_grasp_ids)
@@ -146,12 +173,18 @@ def actions2grasps(obs_cam_high, obs_high_depth, camera_info, cam_pose_json_file
     # pred_joint_data = zip(moving_ids, demo_joint_vals)
 
     r_grasping_poses = [right_eepath[i] for i in moving_ids]
+
+
+    initial_oobb = oobb_from_points(start_end_obj_pts[0])
+    grasp_eepose_trans = right_eepath[r_grasp_ids[0]]
+    grasp_eepose = trans2eepose(grasp_eepose_trans)
     pc_moving = []
     for i in tqdm(moving_ids):
-        # if i == 158:
-        #     print('debug')
+        cur_ee_pose = trans2eepose(right_eepath[i])
+        delta_eepose = multiply(cur_ee_pose, invert(grasp_eepose))
         obj_pc = get_labeled_points(obs_cam_high[i], obs_high_depth[i], camera_info, cam_pose_json_file, \
-                                            video_segments[i][1][0], vid_objects)
+                                            video_segments[i][1][0], vid_objects, initial_oobb = initial_oobb, \
+                                                delta_eepose = delta_eepose,  **kwargs)
         pc_moving.append(obj_pc)
 
     start_obj_points, end_obj_points = start_end_obj_pts
@@ -166,58 +199,6 @@ def actions2grasps(obs_cam_high, obs_high_depth, camera_info, cam_pose_json_file
                          'eff_grasps': l_release_grasps, 'eff_pc': end_obj_points, \
                          'pred_joint_vals': demo_joint_vals}
     return contact_info_dict
-
-# def actions2grasps_startend(color_imgs, depth_imgs, camera_info, cam_pose_json_file, \
-#                                         video_segments, objects, actions, objs = None,  plot = False):
-#     l_joint_vals = actions[:, :6]
-#     l_gripper_val = PUPPET_GRIPPER_JOINT_UNNORMALIZE_FN(actions[:, 6])
-#     r_joint_vals = actions[:, 7:13]
-#     r_gripper_val = PUPPET_GRIPPER_JOINT_UNNORMALIZE_FN(actions[:, 13])
-
-#     smoothed_gripper_ql = _smooth(l_gripper_val)
-#     gripper_dql = np.diff(smoothed_gripper_ql, axis=0) / DT
-
-#     l_grasp_ids = switch_ids(smoothed_gripper_ql, gripper_dql, x_threshold=0.35, dx_threshold=-0.7, type='grasp')
-#     l_release_ids = switch_ids(smoothed_gripper_ql, gripper_dql, x_threshold=0.6, dx_threshold= 0.7, clip_start=100, type='release')
-
-#     smoothed_gripper_qr = _smooth(r_gripper_val)
-#     gripper_dqr = np.diff(smoothed_gripper_qr, axis=0) / DT
-
-#     r_grasp_ids = switch_ids(smoothed_gripper_qr, gripper_dqr, x_threshold=0.35, dx_threshold=-0.7, type='grasp')
-#     r_release_ids = switch_ids(smoothed_gripper_qr, gripper_dqr, x_threshold=0.6, dx_threshold= 0.7, clip_start=100, type='release')
-
-#     left_eepath = compute_eepath(l_joint_vals, 0)
-#     right_eepath = compute_eepath(r_joint_vals, 1)
-
-#     start_obj_points = get_labeled_points(color_imgs[0], depth_imgs[0], camera_info, cam_pose_json_file, \
-#                                         video_segments[0][1][0], objects)
-
-#     end_obj_points = np.array([lp.point for lp in objs[-1].points])
-    
-    
-#     # filter the ids using the distance to the object
-#     l_grasp_ids = filter_grasp_by_obj(start_obj_points.mean(axis=0), left_eepath, l_grasp_ids)
-#     r_grasp_ids = filter_grasp_by_obj(start_obj_points.mean(axis=0), right_eepath, r_grasp_ids)
-#     l_release_ids = filter_grasp_by_obj(end_obj_points.mean(axis=0), left_eepath, l_release_ids)
-#     r_release_ids = filter_grasp_by_obj(end_obj_points.mean(axis=0), right_eepath, r_release_ids)
- 
-#     if plot:
-#         plot_gripper_vals(smoothed_gripper_ql, smoothed_gripper_qr, l_grasp_ids, l_release_ids, r_grasp_ids, r_release_ids)
-
-
-#     last_grasp_id = max(l_grasp_ids+ r_grasp_ids)
-#     first_release_id = min(l_release_ids + r_release_ids)
-#     assert last_grasp_id < first_release_id
-#     demo_joint_vals = actions[last_grasp_id:first_release_id]
-
-#     r_grasp_poses = [right_eepath[i] for i in r_grasp_ids]
-#     l_release_poses = [left_eepath[i] for i in l_release_ids]
-#     start_grasps = {'grasp_poses':  r_grasp_poses, 'obj_points': start_obj_points, 'arm': 'right'}
-#     end_grasps = {'grasp_poses': l_release_poses, 'obj_points': end_obj_points, 'arm': 'left'}
-
-#     contact_info_dict = {'start_grasps': start_grasps, 'end_grasps': end_grasps, \
-#                          'pred_joint_vals': demo_joint_vals}
-#     return contact_info_dict
 
 def switch_ids(smoothed_qpos, gripper_change_rate, x_threshold = 0.1,  dx_threshold = -1, type = 'grasp', clip_start = 0):
     # gripper_data = qpos_data[:, -1]
@@ -245,46 +226,26 @@ def switch_ids(smoothed_qpos, gripper_change_rate, x_threshold = 0.1,  dx_thresh
     return ret_ids
 
 
-# def get_labeled_points(color_img, depth_img_mm, camera_info_depth, cam_pose_json_file, \
-#                        seg_mask, objects, max_depth=2.0, target_size = 512):
-    
-#     str_seg = np.full(depth_img_mm.shape + (2,), "unknown", dtype=object)
-#     for r, c in iterate_array(str_seg, dims=[0, 1]):
-#         if seg_mask[r, c] != False:
-#             str_seg[r, c, 0] = objects[0]
-#             str_seg[r, c, 1] = "instance_1"
 
+def filter_depth(rescale_depth, depth_image):
+    if not rescale_depth:
+        depth_image = (depth_image.astype(np.float32) * 1000.0)
+    import cv2
+    filtered_image = cv2.bilateralFilter(depth_image, d=9, sigmaColor=100, sigmaSpace=75)
+    # mask = (filtered_image == 0).astype(np.uint8)
+    # # Fill holes using OpenCV inpainting with TELEA method, radius 3
+    # depth_image_8bit = cv2.normalize(filtered_image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    # filled_8bit = cv2.inpaint(depth_image_8bit, mask, 3, cv2.INPAINT_TELEA)
+    # filled_depth = cv2.normalize(filled_8bit, None, 0, 65535, cv2.NORM_MINMAX).astype(np.uint16)
 
-#     # get the camera pose
-#     assert cam_pose_json_file is not None
-#     with open(cam_pose_json_file) as f:
-#         cam_pose_dict = json.load(f)
-        
-#     camera_pose = get_compatible_campose(cam_pose_dict)
-#     depth_camera_matrix = np.array(camera_info_depth['K']).reshape(3, 3)
-#     depth_img = depth_img_mm.astype(np.float32) / 1000.0
-#     camera_image = CameraImage(color_img, depth_img, str_seg, camera_pose, depth_camera_matrix)
+    if not rescale_depth:
+        filtered_image = filtered_image.astype(np.float32)/1000.0
+    return filtered_image
 
-#     ## convert labeled_image to labeled_points
-#     pixels = [
-#         pixel
-#         for pixel in iterate_image(camera_image, step_size=2)
-#         if camera_image.segmentationMaskBuffer[pixel][0] ==objects[0]
-#     ]
-
-#     relevant_cloud = [
-#         lp.point
-#         for lp in custom_iterate_point_cloud(
-#             camera_image, pixels, max_depth=max_depth
-#         )
-#     ]
-
-#     relevant_cloud = downsample_pc(relevant_cloud)
-
-#     return relevant_cloud
 
 def get_labeled_points(color_img, depth_img, camera_info_depth, cam_pose_json_file, \
-                          seg_mask, objects, max_depth=2.0, target_size = 512, rescale_depth = True):
+                          seg_mask, objects, rescale_depth = True, 
+                           **kwargs):
     
     depth_camera_matrix = np.array(camera_info_depth['K']).reshape(3, 3)
     fx = depth_camera_matrix[0, 0]
@@ -293,6 +254,9 @@ def get_labeled_points(color_img, depth_img, camera_info_depth, cam_pose_json_fi
     cy = depth_camera_matrix[1, 2]
 
     y_indices, x_indices = np.where(seg_mask)
+
+    # ## filter the depth image using cv
+    # depth_img = filter_depth(rescale_depth, depth_img)
 
     ## covert mm to m
     if rescale_depth:
@@ -333,7 +297,7 @@ def get_labeled_points(color_img, depth_img, camera_info_depth, cam_pose_json_fi
 
     points_world = np.dot(cam_pose_T, points_camera)
 
-    points_Nx3 = downsample_pc(points_world[:3].T, target_size)
+    points_Nx3 = downsample_pc(points_world[:3].T, **kwargs)
 
 
 
@@ -365,6 +329,7 @@ def postprocess_jointgrasp(hdf5_path, play_orig_vid=False, cam_pose_json_file = 
                                             img_segments[i][1][0], img_objects, rescale_depth = False)
         start_end_obj_pts.append(img_pc)
 
+
     ### then run video tracker
     rgb_segmenter.save_images_frames(obs_cam_high)
     video_segments, vid_objects = rgb_segmenter.run_pipeline()
@@ -375,8 +340,7 @@ def postprocess_jointgrasp(hdf5_path, play_orig_vid=False, cam_pose_json_file = 
     # identify grasp poses
     contact_info_dict = actions2grasps(obs_cam_high, obs_high_depth, camera_info, cam_pose_json_file, \
                                         video_segments, vid_objects, actions=obs_qpos, \
-                                            start_end_obj_pts = start_end_obj_pts, plot = True
-                                    )
+                                            start_end_obj_pts = start_end_obj_pts, plot = True)
     
     # save the contact info dict to the hdf5 file
     save_dict_to_hdf5(contact_info_dict, hdf5_path)
@@ -474,8 +438,8 @@ if __name__ == '__main__':
     ### SAM on color image to produce segmentation mask
     rgb_segmenter = SAMTrackPipeline(text_prompt = 'tape.', source_video_frame_dir = "./custom_video_frames", \
                                           save_tracking_results_dir = "./tracking_results" )
-    for episode_idx in [101]:
-    # for episode_idx in range(7, 10): 
+    # for episode_idx in [101]: # 16, 
+    for episode_idx in range(16, 30): 
         test_hdf5_path = os.path.join(file_dir, f"episode_{episode_idx}.hdf5")
         postprocess_jointgrasp(test_hdf5_path, play_orig_vid=False, \
                                cam_pose_json_file = cam_pose_json_file, rgb_segmenter = rgb_segmenter)
