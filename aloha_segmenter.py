@@ -247,7 +247,6 @@ class SAMTrackPipeline:
 
 if __name__ == "__main__":
     # MODEL_ID = "IDEA-Research/grounding-dino-tiny"
-    # VIDEO_PATH = "./assets/hippopotamus.mp4"
     # TEXT_PROMPT = "hippopotamus."
     # OUTPUT_VIDEO_PATH = "./hippopotamus_tracking_demo.mp4"
     # SOURCE_VIDEO_FRAME_DIR = "./custom_video_frames"
@@ -256,9 +255,12 @@ if __name__ == "__main__":
     # pipeline = SAMTrackPipeline(MODEL_ID, VIDEO_PATH, TEXT_PROMPT, OUTPUT_VIDEO_PATH, SOURCE_VIDEO_FRAME_DIR, SAVE_TRACKING_RESULTS_DIR)
     # pipeline.save_video_frames()
 
-
-    pipeline = SAMTrackPipeline(text_prompt = 'tape.', source_video_frame_dir = "./custom_video_frames", \
+    # VIDEO_PATH = "./assets/screwdriver.mp4"
+    VIDEO_PATH = None
+    pipeline = SAMTrackPipeline(text_prompt = 'screwdriver.box.', video_path = VIDEO_PATH, source_video_frame_dir = "./custom_video_frames", \
                                           save_tracking_results_dir = "./tracking_results" )
+    
+    # pipeline.save_video_frames()
     
     video_segments, objects =  pipeline.run_pipeline()
     pipeline.save_results(video_segments, objects)

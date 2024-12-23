@@ -20,7 +20,7 @@ from examples.pybullet.aloha_real.openworld_aloha.entities import  CameraImage
 from examples.pybullet.aloha_real.openworld_aloha.estimation.observation import iterate_image, custom_iterate_point_cloud
 from examples.pybullet.aloha_real.insertion_gmm.post_jointgrasp import get_start_end_objs, play_vid, _smooth,\
     save_dict_to_hdf5
-from examples.pybullet.aloha_real.scripts.constants import trans2eepose, qpos_to_eetrans, PUPPET_GRIPPER_JOINT_UNNORMALIZE_FN, DT
+from examples.pybullet.aloha_real.scripts.aloha_tamp_constants import trans2eepose, qpos_to_eetrans, PUPPET_GRIPPER_JOINT_UNNORMALIZE_FN, DT
 from examples.pybullet.aloha_real.openworld_aloha.simple_worlds import render_pose
 from examples.pybullet.utils.pybullet_tools.utils import oobb_from_points,  tform_oobb, \
     get_oobb_vertices, oobb_contains_point, Point, multiply, invert
