@@ -11,7 +11,7 @@ from aloha_segmenter import SAMTrackPipeline
 from tqdm import tqdm
 
 import sys
-TAMP_PATH = '/home/xuhang/interbotix_ws/src/pddlstream_aloha/'
+TAMP_PATH = '/home/robotics/CoMa_code_clean/CoMa_ws/src/CoMa/'
 sys.path.append(TAMP_PATH)
 os.chdir(TAMP_PATH)
 from examples.pybullet.aloha_real.openworld_aloha.estimation.dnn import iterate_array
@@ -428,11 +428,11 @@ def visualize_processed(hdf5_path, is_pred = True):
     print(f"------Visualized {hdf5_path.split('/')[-1]}------")
 
 if __name__ == '__main__':
-    cam_pose_json_file = '/home/xuhang/interbotix_ws/src/pddlstream_aloha/examples/pybullet/aloha_real/openworld_aloha/estimation/temp_vis/camera_pose.json'
+    cam_pose_json_file = '/home/robotics/CoMa_code_clean/CoMa_ws/src/CoMa/examples/pybullet/aloha_real/openworld_aloha/estimation/temp_vis/camera_pose.json'
     
     # file_dir = "/home/xuhang/Desktop/aloha_data/aloha_transfer_tape"
     file_dir = "/ssd1/aloha_data/aloha_transfer_tape"
-    # file_dir = "/home/xuhang/Desktop/yzchen_ws/equibot_abstract/data/transfer_tape/raw"
+    # file_dir = "/home/robotics/CoMa_code_clean/equibot_abstract/data/transfer_tape/raw"
     
     
     ### SAM on color image to produce segmentation mask
