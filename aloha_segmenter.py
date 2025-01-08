@@ -226,6 +226,16 @@ class SAMTrackPipeline:
         if self.output_video_path is not None:
             create_video_from_images(self.save_tracking_results_dir, self.output_video_path)
 
+    def get_img_masks(self):
+        # After saving, scan all the JPEG frame names in this directory
+        self.frame_names = sorted(
+            [p for p in os.listdir(self.source_video_frame_dir) if os.path.splitext(p)[-1].lower() in [".jpg", ".jpeg"]],
+            key=lambda p: int(os.path.splitext(p)[0])
+        )        
+        input_boxes, objects = self.get_bounding_boxes()
+        masks = self.get_masks(input_boxes)
+        return masks, objects
+    
     def run_pipeline(self):
 
         # After saving, scan all the JPEG frame names in this directory
@@ -246,19 +256,20 @@ class SAMTrackPipeline:
 
 
 if __name__ == "__main__":
-    # MODEL_ID = "IDEA-Research/grounding-dino-tiny"
-    # TEXT_PROMPT = "hippopotamus."
-    # OUTPUT_VIDEO_PATH = "./hippopotamus_tracking_demo.mp4"
-    # SOURCE_VIDEO_FRAME_DIR = "./custom_video_frames"
-    # SAVE_TRACKING_RESULTS_DIR = "./tracking_results"
-    # PROMPT_TYPE_FOR_VIDEO = "box" # choose from ["point", "box", "mask"]
-    # pipeline = SAMTrackPipeline(MODEL_ID, VIDEO_PATH, TEXT_PROMPT, OUTPUT_VIDEO_PATH, SOURCE_VIDEO_FRAME_DIR, SAVE_TRACKING_RESULTS_DIR)
-    # pipeline.save_video_frames()
+    MODEL_ID = "IDEA-Research/grounding-dino-tiny"
+    TEXT_PROMPT = "boy.girl."
+    VIDEO_PATH = "./demo_images/children_tracking_demo.mp4"
+    OUTPUT_VIDEO_PATH = "./children_tracking_results.mp4"
+    SOURCE_VIDEO_FRAME_DIR = "./custom_video_frames"
+    SAVE_TRACKING_RESULTS_DIR = "./tracking_results"
+    PROMPT_TYPE_FOR_VIDEO = "box" # choose from ["point", "box", "mask"]
+    pipeline = SAMTrackPipeline(MODEL_ID, VIDEO_PATH, TEXT_PROMPT, OUTPUT_VIDEO_PATH, SOURCE_VIDEO_FRAME_DIR, SAVE_TRACKING_RESULTS_DIR)
+    pipeline.save_video_frames()
 
-    # VIDEO_PATH = "./assets/screwdriver.mp4"
-    VIDEO_PATH = None
-    pipeline = SAMTrackPipeline(text_prompt = 'screwdriver.box.', video_path = VIDEO_PATH, source_video_frame_dir = "./custom_video_frames", \
-                                          save_tracking_results_dir = "./tracking_results" )
+    # # VIDEO_PATH = "./assets/screwdriver.mp4"
+    # VIDEO_PATH = None
+    # pipeline = SAMTrackPipeline(text_prompt = 'screwdriver.box.', video_path = VIDEO_PATH, source_video_frame_dir = "./custom_video_frames", \
+    #                                       save_tracking_results_dir = "./tracking_results" )
     
     # pipeline.save_video_frames()
     
